@@ -1,29 +1,32 @@
 ﻿const LealoneRpcClient = (function() {
 const L = {
-    sockjsUrl = "/_lealone_sockjs_",
-    serviceUrl = "/service",
+    sockjsUrl: "/_lealone_sockjs_",
+    serviceUrl: "/service",
     services: [],
     serviceNames: [],
+    serviceProxyObjects: [],
 
     getService(serviceName) {
-        if(this.services[serviceName] != undefined)
-            return this.services[serviceName];
+        if(this.serviceProxyObjects[serviceName] != undefined)
+            return this.serviceProxyObjects[serviceName];
         var object = {
             serviceName: serviceName
         }
         this.serviceNames.push(serviceName);
-        this.services[serviceName] = this.getProxyObject(object);
-        return this.services[serviceName];
+        this.services[serviceName] = object;
+        this.serviceProxyObjects[serviceName] = this.getProxyObject(object);
+        return this.serviceProxyObjects[serviceName];
     },
 
     getProxyObject(object) {
+        let that = this;
         let missingMethod = this.missingMethod;
         const proxyObject = new Proxy(object, {
             get(object, property) {
                 if (Reflect.has(object, property)) {
                     return Reflect.get(object, property);
                 } else {
-                    return (...args) => Reflect.apply(missingMethod, proxyObject, [object, property, ...args]);
+                    return (...args) => Reflect.apply(missingMethod, that, [object, property, ...args]);
                 }
             }
         });
@@ -52,7 +55,7 @@ const L = {
                 methodArgs.push(arguments[j]);
             }
         }
-        sendRequest(object.serviceName, methodName, methodArgs);
+        this.sendRequest(object.serviceName, methodName, methodArgs);
     },
 
     call4(serviceContext, service, methodName, arguments) {
@@ -104,12 +107,12 @@ const L = {
             for(var i = columnIndex; i < columnCount; i++) {
                 // 存在相应字段时才加
                 if(serviceContext[names[i]] != undefined)
-                    methodArgs.push(serviceContext[names[i]);
+                    methodArgs.push(serviceContext[names[i]]);
                 else
                     methodArgs.push('');
             }
         }
-        sendRequest(service.serviceName, methodName, methodArgs);
+        this.sendRequest(service.serviceName, methodName, methodArgs);
     },
 
     callService(serviceContext, serviceName, methodName, methodArgs) {
@@ -175,18 +178,19 @@ const L = {
     },
 
     sendRequest(serviceName, methodName, methodArgs) {
-        if(axios != undefined) {
-            var url = this.serviceUrl + "/" + serviceName + "/" + methodName;
-            axios.post(url, { methodArgs : methodArgs })
+        if(window.axios != undefined) {
+            var underscoreMethodName = methodName.replace(/([A-Z])/, function(v) { return '_' + v.toLowerCase(); });
+            var url = this.serviceUrl + "/" + serviceName + "/" + underscoreMethodName;
+            axios.post(url, { methodArgs : JSON.stringify(methodArgs) })
             .then(response => {
                 this.handleResponse(response);
             })
             .catch(error => {
                 this.handleError(serviceName, error.message);
             });
-        } else if(SockJS != undefined) {
+        } else if(window.SockJS != undefined) {
             if(!this.sockjs) {
-                initSockJS();
+                this.initSockJS();
             }
             // 格式: type;serviceName.methodName;[arg1,arg2,...argn]
             var msg = "1;" + serviceName + "." + methodName + ";" + JSON.stringify(methodArgs);
@@ -204,14 +208,18 @@ const L = {
     },
 
     handleResponse(response) {
-        var a = JSON.parse(response.data);
+        var a = [];
+        if(Array.isArray(response.data))
+            a = response.data;
+        else
+            a = JSON.parse(response.data);
         var type = a[0];
         var serviceAndMethodName = a[1].split(".");
         var serviceName = serviceAndMethodName[0];
         var methodName = serviceAndMethodName[1];
         var service = this.services[serviceName];
         if(!service) {
-            console.error("not found service name: "+ serviceName);
+            console.log("not found service name: "+ serviceName);
             return;
         }
         var result = a[2];
@@ -272,7 +280,7 @@ const L = {
                             }
                         } 
                     } catch(e) {
-                        console.error(e);
+                        console.log(e);
                     } 
                 }
                 break;
@@ -289,7 +297,7 @@ const L = {
     handleError(serviceName, msg) {
         var service = this.services[serviceName];
         if(!service) {
-            console.error(msg);
+            console.log(msg);
         } else {
             if(service["onServiceException"]) 
                 service["onServiceException"](msg);
@@ -305,7 +313,7 @@ const L = {
                         }
                     }
                 } 
-                console.error(msg)
+                console.log(msg)
             }
         }
     },
@@ -314,8 +322,10 @@ const L = {
 return {
     setSockjsUrl: function(url) { L.sockjsUrl = url },
     setServiceUrl: function(url) { L.serviceUrl = url },
-    getService: L.getService,
-    loadServices: L.loadServices,
-    callService: L.callService,
+    getService: function() { return L.getService.apply(L, arguments) }, 
+    loadServices: function() { return L.loadServices.apply(L, arguments) }, 
+    callService: function() { return L.callService.apply(L, arguments) }, 
 };
 })();
+
+if(!window.lealone) window.lealone = LealoneRpcClient;

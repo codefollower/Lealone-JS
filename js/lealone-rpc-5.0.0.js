@@ -121,11 +121,8 @@ const L = {
     },
 
     loadServices(callback) {
-        var object = {
-            serviceName: "system_service"
-        }
-        var systemService = getProxyObject(object);
-        systemService.loadServices(serviceNames.join(","), services => {
+        var systemService = this.getService("system_service");
+        systemService.loadServices(this.serviceNames.join(","), services => {
             for(var i = 0; i < services.length; i++) {
                 var serviceInfo = services[i];
                 var service = this.getService(serviceInfo.serviceName);

@@ -4064,7 +4064,17 @@
       };
     } else {
       updateComponent = function () {
-        vm._update(vm._render(), hydrating);
+        if(typeof vm._beforeRender == 'function') {
+          vm._beforeRender(result=>{
+            for(var key in result) {
+              vm[key] = result[key];
+            }
+            vm._update(vm._render(), hydrating);
+          });
+          vm._update(vm._c('div',{}), hydrating);
+        } else {
+          vm._update(vm._render(), hydrating);
+        }
       };
     }
 
@@ -4632,6 +4642,21 @@
     Object.defineProperty(target, key, sharedPropertyDefinition);
   }
 
+  var componentInstances = [];
+  function findComponentInstance (name) {
+     return componentInstances[name];
+  }
+  function getComponentInstance (name) {
+    if(componentInstances[name])
+        return componentInstances[name];
+    var options= this.$options.components[name].options;
+    var instance = {$options: options};
+    initState(instance);
+    componentInstances[name] = instance;
+    instance.external = true;
+    return instance;
+  }
+
   function initState (vm) {
     vm._watchers = [];
     var opts = vm.$options;
@@ -4645,6 +4670,24 @@
     if (opts.computed) { initComputed(vm, opts.computed); }
     if (opts.watch && opts.watch !== nativeWatch) {
       initWatch(vm, opts.watch);
+    }
+
+    if(vm.$options._componentTag && componentInstances[vm.$options._componentTag]) {
+      var componentInstance = componentInstances[vm.$options._componentTag];
+      if(componentInstance.external) {
+        for(var m in componentInstance._data) {
+          try {
+            vm._data[m] = componentInstance._data[m];
+          } catch {}
+        }
+        for(var m in componentInstance) {
+          try {
+            if(typeof componentInstance[m] == 'function' && !m.startsWith("$")) {
+              vm[m] = componentInstance[m];
+            }
+          } catch {}
+        }
+      }
     }
   }
 
@@ -5001,6 +5044,13 @@
       initProvide(vm); // resolve provide after data/props
       callHook(vm, 'created');
 
+      if(vm.$options._componentTag) {
+        componentInstances[vm.$options._componentTag] = vm;
+      } else {
+        vm.getComponentInstance = getComponentInstance; 
+        vm.findComponentInstance = findComponentInstance;
+      }
+
       /* istanbul ignore if */
       if (config.performance && mark) {
         vm._name = formatComponentName(vm, false);
@@ -5076,6 +5126,8 @@
       warn('Vue is a constructor and should be called with the `new` keyword');
     }
     this._init(options);
+    this.getComponentInstance = getComponentInstance;
+    this.findComponentInstance = findComponentInstance;
   }
 
   initMixin(Vue);
